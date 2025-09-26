@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ make
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev
+
+      - name: Start NATS server (Docker)
+        run: |
+          docker run -d --name nats -p 4222:4222 nats:latest
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Run tests
+        env:
+          NATS_HOST: "127.0.0.1"
+          NATS_PORT: "4222"
+        run: |
+          ./build/natspp_tests --gtest_output=xml:./build/test-report.xml
+
+      - name: Download test report
+        uses: actions/download-artifact@v4
+        with:
+          name: gtest-report.xml
+          path: build/
+
+
+      - name: Stop NATS
+        if: always()
+        run: docker rm -f nats || true

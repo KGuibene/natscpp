@@ -1,0 +1,25 @@
+name: conan
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Conan
+        run: |
+          pipx install conan
+          conan --version
+          conan profile detect --force
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler libprotobuf-dev
+
+
+      - name: Create package (Release)
+        run: conan create . --version=0.1.0 -s build_type=Release
+
+      - name: Create package (Debug)
+        run: conan create . --version=0.1.0 -s build_type=Debug
