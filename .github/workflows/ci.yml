@@ -36,20 +36,6 @@ jobs:
         run: |
           ./build/natspp_tests --gtest_output=xml:./build/test-report.xml
 
-      - name: Upload test report
-        uses: actions/upload-artifact@v4
-        with:
-          name: gtest-report
-          path: ./build/gtest-results.xml
-          if-no-files-found: error    
-          retention-days: 7           
-          
-      - name: Download test report
-        uses: actions/download-artifact@v4
-        with:
-          name: gtest-report
-          path: reports/
-
       - name: Stop NATS
         if: always()
         run: docker rm -f nats || true
