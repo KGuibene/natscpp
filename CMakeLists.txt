@@ -150,6 +150,9 @@ if (BUILD_TESTING)
     add_executable(natspp_tests tests/test_nats.cpp)
     target_link_libraries(natspp_tests PRIVATE natspp GTest::gtest_main)
 
-    add_test(NAME natspp_tests COMMAND natspp_tests)
+    add_test(
+      NAME natspp_tests
+      COMMAND natspp_tests --gtest_output=xml:${CMAKE_BINARY_DIR}/gtest-results.xml
+    )
   endif()
 endif()

@@ -43,13 +43,35 @@ int main() {
     }
     c.publish("demo.hello",  buf.data(), buf.size());
 
+
+  int rsid = c.respond("service.greeting",
+    [](const std::string&, const std::string& data) -> std::string {
+      std::string req;
+      resp = "Hello " + req;
+      std::string buf;
+      resp.SerializeToString(&buf);
+      return buf;
+    });
+
+    // Send a request and wait for the response (with timeout)
+    /*
+    std::string reqbuf = "Requester 1";
+    try {
+      auto reply = c.request("service.greeting", &reqbuf, sizeof(&reqbuf), std::chrono::milliseconds(1000));
+      std::cout << "got reply bytes, size=" << reply.size() << "\n";
+      std::string reply_str = reply; // raw bytes
+      std::cout << "reply as string: " << reply_str << "\n";
+    } catch (const natspp::error& e) {
+      std::cerr << "request failed: " << e.what() << "\n";
+    }*/
     // Block here until close() is called or connection ends:
     c.run_forever();
-
     // optional: cleanup
     c.unsubscribe(sid);
     c.close();
     return 0;
+
+
 
   } catch (const std::exception& e) {
     std::cerr << "fatal: " << e.what() << std::endl;

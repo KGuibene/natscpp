@@ -25,6 +25,8 @@ struct options {
 using message_handler = std::function<void(const std::string& subject,
                                            const std::string& reply,
                                            const std::string& data)>;
+using request_handler = std::function<std::string(const std::string& subject,
+                                                  const std::string& payload)>;
 
 class client {
 public:
@@ -53,6 +55,19 @@ public:
 
   // Unsubscribe. Thread-safe.
   void unsubscribe(int sid, std::optional<int> max_msgs = std::nullopt);
+
+  // Request/Reply (binary payload). Throws natspp::error on timeout/not connected.
+  std::string request(const std::string& subject,
+                      const void* data, std::size_t size,
+                      std::chrono::milliseconds timeout);
+
+  // Respond to requests on `subject`. The handler returns the response payload.
+  // If the incoming message has an empty reply subject, it's ignored.
+
+
+  int respond(const std::string& subject,
+              request_handler handler,
+              const std::string& queue = "");
 
 private:
   struct impl;
