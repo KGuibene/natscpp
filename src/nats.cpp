@@ -15,6 +15,9 @@
 #include <thread>
 #include <vector>
 
+#include <random>
+#include <sstream>
+
 namespace natspp {
 
 static constexpr const char* CRLF = "\r\n";
@@ -46,6 +49,16 @@ static std::string json_escape(const std::string& s) {
   return o;
 }
 
+static std::string make_inbox() 
+{
+  // NATS commonly uses base32; hex is fine for uniqueness.
+  static thread_local std::mt19937_64 rng{std::random_device{}()};
+  std::uniform_int_distribution<uint64_t> dist;
+  std::ostringstream oss;
+  oss << "_INBOX.";
+  for (int i = 0; i < 3; ++i) oss << std::hex << dist(rng); // ~48 hex chars
+  return oss.str();
+}
 struct client::impl {
   options opts;
 
@@ -312,5 +325,75 @@ void client::unsubscribe(int sid, std::optional<int> max_msgs) {
   if (!p_ || !p_->running) throw error("not connected");
   p_->api_unsubscribe(sid, max_msgs);
 }
+
+
+std::string client::request(const std::string& subject,
+                            const void* data, std::size_t size,
+                            std::chrono::milliseconds timeout) {
+  if (!p_ || !p_->running) throw error("not connected");
+
+  const std::string inbox = make_inbox();
+
+  std::mutex mu;
+  std::condition_variable cv;
+  bool got = false;
+  std::string response;
+
+  // 1) Subscribe to the unique reply subject first
+  int sid = subscribe(inbox, [&](const std::string&, const std::string&, const std::string& payload){
+    std::lock_guard<std::mutex> lk(mu);
+    if (got) return;           // ignore extra replies, take the first
+    response = payload;
+    got = true;
+    cv.notify_all();
+  });
+
+  // 2) Publish the request with the reply subject
+  try {
+    publish(subject, data, size, inbox);   // uses your binary publish overload
+  } catch (...) {
+    // ensure we don't leak the subscription if publish throws
+    try { unsubscribe(sid); } catch (...) {}
+    throw;
+  }
+
+  // 3) Wait for the first reply or timeout
+  std::unique_lock<std::mutex> lk(mu);
+  bool ok = cv.wait_for(lk, timeout, [&]{ return got; });
+
+  // 4) Cleanup sub (best-effort)
+  try { unsubscribe(sid); } catch (...) {}
+
+  if (!ok) throw error("request timeout");
+  return response;
+}
+
+int client::respond(const std::string& subject,
+                    request_handler handler,
+                    const std::string& queue) {
+  if (!p_ || !p_->running) throw error("not connected");
+
+  // Reuse existing subscribe; handler runs on reader thread
+  return subscribe(subject,
+    [this, subject, handler = std::move(handler)](const std::string& subj,
+                                         const std::string& reply,
+                                         const std::string& data) {
+      if (reply.empty()) return;                   // no place to respond
+      std::string resp;
+      try {
+        resp = handler(subj, data);                // user logic
+      } catch (const std::exception& e) {
+        // Optional: send error text back, or just drop
+        resp = std::string("error: ") + e.what();
+      }
+      try {
+        publish(subject, &reply, sizeof(reply), resp);                      // send response
+      } catch (...) {
+        // best-effort; ignore publish errors here
+      }
+    }, queue);
+}
+
+
 
 } // namespace natspp
