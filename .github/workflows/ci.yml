@@ -18,13 +18,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake g++ make
           sudo apt-get install -y protobuf-compiler libprotobuf-dev
+          sudo apt-get install -y gcovr
 
       - name: Start NATS server (Docker)
         run: |
           docker run -d --name nats -p 4222:4222 nats:latest
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DNATSPP_ENABLE_COVERAGE=ON
 
       - name: Build
         run: cmake --build build -j
@@ -35,6 +36,18 @@ jobs:
           NATS_PORT: "4222"
         run: |
           ./build/natspp_tests --gtest_output=xml:./build/test-report.xml
+
+      - name: Generate coverage report
+        run: |
+          gcovr -r . --xml-pretty -o build/coverage.xml --html --html-details -o build/coverage.html
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            build/coverage.xml
+            build/coverage.html
 
       - name: Stop NATS
         if: always()

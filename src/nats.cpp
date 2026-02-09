@@ -220,6 +220,35 @@ struct client::impl {
         if (cb) cb(subject, reply, payload);
         continue;
       }
+      if (line.rfind("HMSG ", 0) == 0) {
+        // HMSG <subject> <sid> [reply] <#bytes> <#hdrs>
+        auto parts = split_ws(line);
+        if (parts.size() < 5) continue;
+        std::string subject = parts[1];
+        int sid = std::stoi(parts[2]);
+        bool has_reply = (parts.size() == 6);
+        std::string reply = has_reply ? parts[3] : "";
+        size_t nbytes = std::stoul(parts[has_reply ? 4 : 3]);
+        size_t nhdrs = std::stoul(parts[has_reply ? 5 : 4]);
+
+        std::string payload;
+        if (!read_exact(payload, nbytes)) break;
+        std::string crlf;
+        if (!read_exact(crlf, 2) || crlf != "\r\n") break;
+
+        std::string body;
+        if (nhdrs <= payload.size()) {
+          body = payload.substr(nhdrs);
+        }
+
+        message_handler cb;
+        { std::lock_guard<std::mutex> lk(sub_mu);
+          auto it = subs.find(sid);
+          if (it != subs.end()) cb = it->second;
+        }
+        if (cb) cb(subject, reply, body);
+        continue;
+      }
       // Unknown line -> ignore
     }
     running = false;
@@ -387,7 +416,7 @@ int client::respond(const std::string& subject,
         resp = std::string("error: ") + e.what();
       }
       try {
-        publish(subject, &reply, sizeof(reply), resp);                      // send response
+        publish(reply, resp.data(), resp.size());        // send response
       } catch (...) {
         // best-effort; ignore publish errors here
       }
