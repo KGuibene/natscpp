@@ -44,12 +44,17 @@ int main() {
     c.publish("demo.hello",  buf.data(), buf.size());
 
 
-  int rsid = c.respond("service.greeting",
+  int rsid = c.respond(
+    "service.greeting",
     [](const std::string&, const std::string& data) -> std::string {
-      std::string req;
-      resp = "Hello " + req;
+      demo::Message req_msg;
+      if (!req_msg.ParseFromString(data)) {
+        return {};
+      }
+      demo::Message resp_msg;
+      resp_msg.set_content("Hello " + req_msg.content());
       std::string buf;
-      resp.SerializeToString(&buf);
+      resp_msg.SerializeToString(&buf);
       return buf;
     });
 
