@@ -166,6 +166,12 @@ std::vector<std::string> split_ws(const std::string& s) {
   return parts;
 }
 
+void consume_connect(FakeNatsServer& server) {
+  std::string line;
+  ASSERT_TRUE(server.read_line(line));
+  EXPECT_TRUE(line.rfind("CONNECT ", 0) == 0);
+}
+
 }  // namespace
 
 TEST(Natspp, ConnectSendsConnectAndRespondsToPing) {
@@ -202,6 +208,7 @@ TEST(Natspp, PublishSubscribeUnsubscribeAndHeaders) {
   natspp::client c(opts);
   c.connect();
   server.wait_for_client();
+  consume_connect(server);
 
   std::mutex mu;
   std::condition_variable cv;
@@ -245,7 +252,7 @@ TEST(Natspp, PublishSubscribeUnsubscribeAndHeaders) {
   c.publish("demo.subject", msg, std::strlen(msg));
   ASSERT_TRUE(server.read_line(line));
   parts = split_ws(line);
-  ASSERT_EQ(parts.size(), 4u);
+  ASSERT_EQ(parts.size(), 3u);
   EXPECT_EQ(parts[0], "PUB");
   EXPECT_EQ(parts[1], "demo.subject");
   EXPECT_EQ(parts[2], "2");
@@ -271,22 +278,42 @@ TEST(Natspp, RequestReplyAndTimeout) {
   natspp::client c(opts);
   c.connect();
   server.wait_for_client();
+  consume_connect(server);
 
+  std::atomic<bool> responder_ok{true};
   std::thread responder([&] {
     std::string line;
-    ASSERT_TRUE(server.read_line(line));
+    if (!server.read_line(line)) {
+      responder_ok = false;
+      return;
+    }
     auto sub_parts = split_ws(line);
-    ASSERT_GE(sub_parts.size(), 3u);
+    if (sub_parts.size() < 3) {
+      responder_ok = false;
+      return;
+    }
     int sid = std::stoi(sub_parts.back());
 
-    ASSERT_TRUE(server.read_line(line));
+    if (!server.read_line(line)) {
+      responder_ok = false;
+      return;
+    }
     auto pub_parts = split_ws(line);
-    ASSERT_EQ(pub_parts.size(), 4u);
+    if (pub_parts.size() != 4) {
+      responder_ok = false;
+      return;
+    }
     std::string reply = pub_parts[2];
     std::size_t nbytes = static_cast<std::size_t>(std::stoul(pub_parts[3]));
     std::string payload;
-    ASSERT_TRUE(server.read_exact(payload, nbytes));
-    ASSERT_TRUE(server.read_exact(payload, 2));
+    if (!server.read_exact(payload, nbytes)) {
+      responder_ok = false;
+      return;
+    }
+    if (!server.read_exact(payload, 2)) {
+      responder_ok = false;
+      return;
+    }
     server.send_msg(reply, sid, "response");
   });
 
@@ -294,6 +321,7 @@ TEST(Natspp, RequestReplyAndTimeout) {
   EXPECT_EQ(out, "response");
 
   responder.join();
+  EXPECT_TRUE(responder_ok.load());
 
   EXPECT_THROW(c.request("demo.req", "noop", 4, 50ms), natspp::error);
 
@@ -309,6 +337,7 @@ TEST(Natspp, RespondPublishesToReplySubject) {
   natspp::client c(opts);
   c.connect();
   server.wait_for_client();
+  consume_connect(server);
 
   int sid = c.respond("svc.echo", [](const std::string&, const std::string& payload) {
     return std::string("echo:") + payload;
@@ -326,7 +355,7 @@ TEST(Natspp, RespondPublishesToReplySubject) {
 
   ASSERT_TRUE(server.read_line(line));
   parts = split_ws(line);
-  ASSERT_EQ(parts.size(), 4u);
+  ASSERT_EQ(parts.size(), 3u);
   EXPECT_EQ(parts[0], "PUB");
   EXPECT_EQ(parts[1], "inbox.1");
   std::size_t nbytes = static_cast<std::size_t>(std::stoul(parts[2]));
@@ -351,6 +380,7 @@ TEST(Natspp, RunForeverUnblocksOnClose) {
   natspp::client c(opts);
   c.connect();
   server.wait_for_client();
+  consume_connect(server);
 
   std::thread t([&] { c.run_forever(); });
   std::this_thread::sleep_for(50ms);

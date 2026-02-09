@@ -9,7 +9,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(NATSPP_BUILD_DEMO "Build demo executable" ON)
 option(NATSPP_DEMO_PROTO "Generate and build protobuf demo sources" ON) # demo-only
+option(NATSPP_ENABLE_COVERAGE "Enable coverage reporting flags" OFF)
 include(CTest)  # defines BUILD_TESTING
+
+if (NATSPP_ENABLE_COVERAGE)
+  if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_library(natspp_coverage_flags INTERFACE)
+    target_compile_options(natspp_coverage_flags INTERFACE --coverage -O0 -g)
+    target_link_libraries(natspp_coverage_flags INTERFACE --coverage)
+  else()
+    message(WARNING "Coverage flags requested but compiler does not support GNU/Clang coverage.")
+  endif()
+endif()
 
 # --------------------------------------------------------------------------
 # Library (protobuf-free)
@@ -26,6 +37,9 @@ target_include_directories(natspp
 
 find_package(Threads REQUIRED)
 target_link_libraries(natspp PUBLIC Threads::Threads)
+if (TARGET natspp_coverage_flags)
+  target_link_libraries(natspp PRIVATE natspp_coverage_flags)
+endif()
 
 # If you ever need extra POSIX feature macros, uncomment:
 # target_compile_definitions(natspp PRIVATE _POSIX_C_SOURCE=200809L)
@@ -149,6 +163,9 @@ if (BUILD_TESTING)
 
     add_executable(natspp_tests tests/test_nats.cpp)
     target_link_libraries(natspp_tests PRIVATE natspp GTest::gtest_main)
+    if (TARGET natspp_coverage_flags)
+      target_link_libraries(natspp_tests PRIVATE natspp_coverage_flags)
+    endif()
 
     add_test(
       NAME natspp_tests
